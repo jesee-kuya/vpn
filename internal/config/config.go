@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"p2nova-vpn/internal/geo"
 )
 
 func Load() (*Config, error) {
@@ -12,13 +13,20 @@ func Load() (*Config, error) {
 		NetworkCIDR:    getEnv("NETWORK_CIDR", "10.8.0.0/24"),
 		AllowedIPs:     "0.0.0.0/0",
 		DNSServers:     []string{"1.1.1.1", "8.8.8.8"},
-		Servers: []ServerConfig{
-			{Code: "KE", Name: "Kenya", IP: getEnv("SERVER_IP", "")},
-			{Code: "US", Name: "United States", IP: "192.168.43.112"},
-			{Code: "UK", Name: "United Kingdom", IP: ""},
-		},
 	}
 
+	geoInfo, err := geo.GetServerGeo(os.Getenv("SERVER_IP"))
+	if err != nil {
+		geoInfo = &GeoInfo{Country: "Unknown", IP: os.Getenv("SERVER_IP")}
+	}
+
+	cfg.Servers = []ServerConfig{
+		{
+			Code: geoInfo.Country,
+			Name: geoInfo.City + " VPN",
+			IP:   geoInfo.IP,
+		},
+	}
 	// Generate keys if not exist
 	privateKey := getEnv("WG_PRIVATE_KEY", "")
 	publicKey := getEnv("WG_PUBLIC_KEY", "")
