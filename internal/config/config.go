@@ -17,7 +17,7 @@ func Load() (*Config, error) {
 
 	geoInfo, err := geo.GetServerGeo(os.Getenv("SERVER_IP"))
 	if err != nil {
-		geoInfo = &GeoInfo{Country: "Unknown", IP: os.Getenv("SERVER_IP")}
+		geoInfo = &geo.GeoInfo{Country: "Unknown", IP: os.Getenv("SERVER_IP")}
 	}
 
 	cfg.Servers = []ServerConfig{
