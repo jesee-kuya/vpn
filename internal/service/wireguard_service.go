@@ -1,48 +1,43 @@
 package service
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"os/exec"
-	"strings"
 
 	"p2nova-vpn/internal/config"
-	"p2nova-vpn/pkg/wireguard"
+
+	"golang.org/x/crypto/curve25519"
 )
 
 type WireguardService struct {
 	config *config.Config
-	wg     *wireguard.Interface
+	wg     string
 }
 
 func NewWireguardService(cfg *config.Config) *WireguardService {
-	wg := wireguard.NewInterface(cfg.WireGuardIface)
-
-	svc := &WireguardService{
+	return &WireguardService{
 		config: cfg,
-		wg:     wg,
+		wg:     cfg.WGInterface, // e.g., "wg0"
 	}
-
-	// Initialize WireGuard interface
-	if err := svc.initialize(); err != nil {
-		fmt.Printf("Warning: WireGuard initialization failed: %v\n", err)
-	}
-
-	return svc
 }
 
-func (s *WireguardService) initialize() error {
-	// Generate keys if needed
-	if s.config.ServerPrivateKey == "" {
-		privateKey, publicKey, err := s.generateKeys()
-		if err != nil {
-			return err
-		}
-		s.config.ServerPrivateKey = privateKey
-		s.config.ServerPublicKey = publicKey
+func (s *WireguardService) generateKeys() (privateKey, publicKey string, err error) {
+	// Generate private key
+	var private [32]byte
+	if _, err := rand.Read(private[:]); err != nil {
+		return "", "", err
 	}
 
-	// Setup interface
-	return s.wg.Setup(s.config.ServerPrivateKey, s.config.WireGuardPort, s.config.NetworkCIDR)
+	privateKey = base64.StdEncoding.EncodeToString(private[:])
+
+	// Derive public key
+	var public [32]byte
+	curve25519.ScalarBaseMult(&public, &private)
+	publicKey = base64.StdEncoding.EncodeToString(public[:])
+
+	return privateKey, publicKey, nil
 }
 
 func (s *WireguardService) AddPeer(clientIP string) (peerConfig string, publicKey string, err error) {
@@ -52,41 +47,31 @@ func (s *WireguardService) AddPeer(clientIP string) (peerConfig string, publicKe
 		return "", "", err
 	}
 
-	// Add peer to WireGuard
-	if err := s.wg.AddPeer(pubKey, clientIP); err != nil {
-		return "", "", err
+	// Add peer to WireGuard using wg command
+	cmd := exec.Command("wg", "set", s.wg,
+		"peer", pubKey,
+		"allowed-ips", fmt.Sprintf("%s/32", clientIP))
+
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return "", "", fmt.Errorf("failed to add peer: %s - %v", output, err)
 	}
 
 	// Generate client config
-	peerConfig = s.generatePeerConfig(privateKey, s.config.ServerPublicKey, clientIP)
+	peerConfig = s.generatePeerConfig(privateKey, clientIP)
 
 	return peerConfig, pubKey, nil
 }
 
 func (s *WireguardService) RemovePeer(publicKey string) error {
-	return s.wg.RemovePeer(publicKey)
+	cmd := exec.Command("wg", "set", s.wg, "peer", publicKey, "remove")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to remove peer: %s - %v", output, err)
+	}
+	return nil
 }
 
-func (s *WireguardService) generateKeys() (privateKey, publicKey string, err error) {
-	cmd := exec.Command("wg", "genkey")
-	output, err := cmd.Output()
-	if err != nil {
-		return "", "", fmt.Errorf("failed to generate private key: %w", err)
-	}
-	privateKey = strings.TrimSpace(string(output))
-
-	cmd = exec.Command("wg", "pubkey")
-	cmd.Stdin = strings.NewReader(privateKey)
-	output, err = cmd.Output()
-	if err != nil {
-		return "", "", fmt.Errorf("failed to generate public key: %w", err)
-	}
-	publicKey = strings.TrimSpace(string(output))
-
-	return privateKey, publicKey, nil
-}
-
-func (s *WireguardService) generatePeerConfig(privateKey, serverPublicKey, clientIP string) string {
+func (s *WireguardService) generatePeerConfig(privateKey, clientIP string) string {
+	// This is the complete config the client needs
 	return fmt.Sprintf(`[Interface]
 PrivateKey = %s
 Address = %s/32
@@ -94,15 +79,14 @@ DNS = %s
 
 [Peer]
 PublicKey = %s
-Endpoint = %s:%d
-AllowedIPs = %s
+Endpoint = %s:%s
+AllowedIPs = 0.0.0.0/0, ::/0
 PersistentKeepalive = 25`,
 		privateKey,
 		clientIP,
-		strings.Join(s.config.DNSServers, ", "),
-		serverPublicKey,
-		s.config.Servers[0].IP,
-		s.config.WireGuardPort,
-		s.config.AllowedIPs,
+		s.config.DNSServers, // e.g., "1.1.1.1, 8.8.8.8"
+		s.config.ServerPublicKey,
+		s.config.ServerEndpoint, // Your VPN server's public IP
+		s.config.WGPort,         // Usually 51820
 	)
 }

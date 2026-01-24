@@ -8,12 +8,12 @@ type ServerConfig struct {
 
 type Config struct {
 	Port             string
-	WireGuardIface   string
-	WireGuardPort    int
-	ServerPrivateKey string
 	ServerPublicKey  string
-	NetworkCIDR      string
-	DNSServers       []string
-	AllowedIPs       string
-	Servers          []ServerConfig
+	ServerPrivateKey string
+	ServerEndpoint   string
+	WGInterface      string
+	WGPort           string
+	VPNSubnet        string
+	DNSServers       string
+	Servers 		[]ServerConfig
 }

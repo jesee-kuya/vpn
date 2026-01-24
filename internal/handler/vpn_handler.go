@@ -23,6 +23,7 @@ func (h *Handler) Connect(w http.ResponseWriter, r *http.Request) {
 		"sessionId": session.SessionID,
 		"ip":        session.ClientIP,
 		"startTime": session.StartTime,
+		"config":    session.PeerConfig,
 	})
 }
 

@@ -3,6 +3,8 @@ package service
 import (
 	"fmt"
 	"math/rand"
+	"net"
+	"sync"
 	"time"
 
 	"p2nova-vpn/internal/config"
@@ -14,13 +16,87 @@ type VPNService struct {
 	sessionRepo *repository.SessionRepository
 	wgService   *WireguardService
 	config      *config.Config
+	ipPool      *IPPool
+}
+
+type IPPool struct {
+	mu        sync.Mutex
+	network   *net.IPNet
+	allocated map[string]bool
+	lastIP    net.IP
+}
+
+func NewIPPool(cidr string) (*IPPool, error) {
+	_, network, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return nil, err
+	}
+
+	return &IPPool{
+		network:   network,
+		allocated: make(map[string]bool),
+		lastIP:    network.IP.Mask(network.Mask),
+	}, nil
+}
+
+func (p *IPPool) Allocate() (string, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// Start from the next IP after network address
+	ip := make(net.IP, len(p.lastIP))
+	copy(ip, p.lastIP)
+
+	// Try to find an available IP
+	for i := 0; i < 253; i++ { // Avoid broadcast
+		ip = nextIP(ip)
+
+		if !p.network.Contains(ip) {
+			return "", fmt.Errorf("IP pool exhausted")
+		}
+
+		ipStr := ip.String()
+		if !p.allocated[ipStr] {
+			p.allocated[ipStr] = true
+			p.lastIP = ip
+			return ipStr, nil
+		}
+	}
+
+	return "", fmt.Errorf("no available IPs")
+}
+
+func (p *IPPool) Release(ipStr string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	delete(p.allocated, ipStr)
+}
+
+func nextIP(ip net.IP) net.IP {
+	next := make(net.IP, len(ip))
+	copy(next, ip)
+
+	for j := len(next) - 1; j >= 0; j-- {
+		next[j]++
+		if next[j] != 0 {
+			break
+		}
+	}
+
+	return next
 }
 
 func NewVPNService(sessionRepo *repository.SessionRepository, wgService *WireguardService, cfg *config.Config) *VPNService {
+	ipPool, err := NewIPPool(cfg.VPNSubnet) // e.g., "10.8.0.0/24"
+	if err != nil {
+		panic(err)
+	}
+
 	return &VPNService{
 		sessionRepo: sessionRepo,
 		wgService:   wgService,
 		config:      cfg,
+		ipPool:      ipPool,
 	}
 }
 
@@ -31,12 +107,16 @@ func (s *VPNService) Connect(serverCode string) (*domain.Session, error) {
 	}
 
 	// Allocate IP for client
-	clientIP := s.allocateIP()
+	clientIP, err := s.ipPool.Allocate()
+	if err != nil {
+		return nil, fmt.Errorf("failed to allocate IP: %w", err)
+	}
 
 	// Create WireGuard peer
 	peerConfig, clientKey, err := s.wgService.AddPeer(clientIP)
 	if err != nil {
-		return nil, fmt.Errorf("failed to add peer: %w", err)
+		s.ipPool.Release(clientIP)
+		return nil, fmt.Errorf("failed to add WireGuard peer: %w", err)
 	}
 
 	// Create session
@@ -54,8 +134,10 @@ func (s *VPNService) Disconnect(sessionID string) error {
 
 	// Remove WireGuard peer
 	if err := s.wgService.RemovePeer(session.ClientKey); err != nil {
-		return fmt.Errorf("failed to remove peer: %w", err)
+		return err
 	}
+
+	s.ipPool.Release(session.ClientIP)
 
 	session.Connected = false
 	session.EndTime = time.Now().Unix()

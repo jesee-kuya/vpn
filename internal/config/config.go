@@ -7,12 +7,14 @@ import (
 
 func Load() (*Config, error) {
 	cfg := &Config{
-		Port:           getEnv("PORT", "8080"),
-		WireGuardIface: getEnv("WG_INTERFACE", "wg0"),
-		WireGuardPort:  51820,
-		NetworkCIDR:    getEnv("NETWORK_CIDR", "10.8.0.0/24"),
-		AllowedIPs:     "0.0.0.0/0",
-		DNSServers:     []string{"1.1.1.1", "8.8.8.8"},
+		Port:             getEnv("PORT", "8080"),
+		ServerPublicKey:  getEnv("SERVER_PUBLIC_KEY", ""),
+		ServerPrivateKey: getEnv("SERVER_PRIVATE_KEY", ""),
+		ServerEndpoint:   getEnv("SERVER_ENDPOINT", ""),
+		WGInterface:      getEnv("WG_INTERFACE", "wg0"),
+		WGPort:           getEnv("WG_PORT", "51820"),
+		VPNSubnet:        getEnv("VPN_SUBNET", "10.8.0.0/24"),
+		DNSServers:       getEnv("DNS_SERVERS", "1.1.1.1, 8.8.8.8"),
 	}
 
 	geoInfo, err := geo.GetServerGeo(os.Getenv("SERVER_IP"))
