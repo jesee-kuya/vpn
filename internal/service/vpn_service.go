@@ -101,11 +101,16 @@ func NewVPNService(sessionRepo *repository.SessionRepository, wgService *Wiregua
 }
 
 func (s *VPNService) Connect(serverCode string) (*domain.Session, error) {
-	// Check if already connected
+	// 1. Check for any active session
 	if active := s.sessionRepo.GetActiveSession(); active != nil {
-		return nil, domain.ErrAlreadyConnected
+		// found an existing connection, kill it (Disconnect)
+		// This handles cleanup of WireGuard peers and IP release
+		if err := s.Disconnect(active.SessionID); err != nil {
+			return nil, fmt.Errorf("failed to disconnect existing session: %w", err)
+		}
 	}
 
+	// 2. Proceed with new connection logic
 	// Allocate IP for client
 	clientIP, err := s.ipPool.Allocate()
 	if err != nil {
