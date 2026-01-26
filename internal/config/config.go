@@ -7,25 +7,6 @@ import (
 	"p2nova-vpn/internal/geo"
 )
 
-type Config struct {
-	Port             string
-	ServerPublicKey  string
-	ServerPrivateKey string
-	ServerEndpoint   string
-	WGInterface      string
-	WGPort           string
-	VPNSubnet        string
-	DNSServers       string
-	Servers          []ServerConfig
-}
-
-type ServerConfig struct {
-	Code string
-	Name string
-	IP   string
-	Flag string
-}
-
 func Load() (*Config, error) {
 	cfg := &Config{
 		Port:             getEnv("PORT", "8080"),
