@@ -15,5 +15,5 @@ type Config struct {
 	WGPort           string
 	VPNSubnet        string
 	DNSServers       string
-	Servers 		[]ServerConfig
+	Servers          []ServerConfig
 }
