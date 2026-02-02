@@ -76,6 +76,7 @@ func (s *WireguardService) generatePeerConfig(privateKey, clientIP string) strin
 PrivateKey = %s
 Address = %s/32
 DNS = %s
+MTU = 1420
 
 [Peer]
 PublicKey = %s
