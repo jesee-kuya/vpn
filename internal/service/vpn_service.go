@@ -32,13 +32,20 @@ func NewIPPool(cidr string) (*IPPool, error) {
 		return nil, err
 	}
 
+	// Start from network address
+	startIP := network.IP.Mask(network.Mask)
+
+	// Skip .0 (network) and .1 (server/gateway)
+	// Start allocation from .2
+	startIP = nextIP(startIP) // .0 -> .1
+	startIP = nextIP(startIP) // .1 -> .2
+
 	return &IPPool{
 		network:   network,
 		allocated: make(map[string]bool),
-		lastIP:    network.IP.Mask(network.Mask),
+		lastIP:    startIP, // Now starts from .2
 	}, nil
 }
-
 func (p *IPPool) Allocate() (string, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
